@@ -44,3 +44,5 @@ def calcular_metricas(lista_procesos: List[Proceso]) -> Dict:
         "tiempo_retorno_prom": None,
         "throughput": None,
     }
+
+#prueba
