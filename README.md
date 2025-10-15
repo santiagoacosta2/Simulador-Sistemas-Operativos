@@ -1,8 +1,8 @@
-# Simulador de Sistemas Operativos — Entrega 1 (estado actual)
+# Simulador de Sistemas Operativos — Entrega 1
 
 ## Objetivo
 
-Simular arribos de procesos y gestión de memoria con particiones fijas. Mostrar snapshots de memoria y flujo básico de eventos. Preparado para incorporar planificación SRTF con desalojo y métricas finales.
+Simular arribos de procesos y gestión de memoria con particiones fijas. Mostrar snapshots de memoria y flujo básico de eventos. El proyecto queda preparado para integrar planificación SRTF con desalojo y métricas finales.
 
 ## Requisitos
 
@@ -16,16 +16,17 @@ Simular arribos de procesos y gestión de memoria con particiones fijas. Mostrar
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+# Herramientas de desarrollo (si no están en requirements)
 python -m pip install pytest black ruff
 ```
 
 ## Ejecución
 
 ```powershell
-# silencioso (sin snapshots)
+# Modo silencioso (sin snapshots)
 python main.py --csv procesos.csv
 
-# verbose (con snapshots de memoria y eventos)
+# Modo verbose (con snapshots de memoria y eventos)
 python main.py --csv procesos.csv --verbose
 ```
 
@@ -61,24 +62,24 @@ Reglas de validación actuales (mínimas):
   - SO: 100K reservada.
   - Usuario: 250K, 150K, 50K.
   - Asignación **Best-Fit**.
-  - **Grado multiprogramación = 5**.
+  - **Grado de multiprogramación = 5**.
   - Cola de espera por memoria y reintentos FIFO al liberar.
   - Snapshot tabular con fragmentación interna.
 
-- **Eventos**:
+- **Eventos**
 
-  - ARRIBO: intenta admitir y encola en ready si entra.
-  - FIN_CPU (demo): libera y dispara reintentos de espera.
+  - **ARRIBO**: intenta admitir y encola en ready si entra.
+  - **FIN_CPU** (demo): libera y dispara reintentos de espera.
 
-- **CLI**:
+- **CLI**
 
   - `--csv` para ruta del archivo de procesos.
   - `--verbose` para imprimir eventos y snapshots.
 
-- **Pruebas**:
+- **Pruebas**
 
-  - `pytest` con 2 tests: límite de grado y proceso que no cabe.
-  - `black` y `ruff` sin errores.
+  - `pytest` con 3 tests: límite de grado, proceso que no cabe y flujo de memoria.
+  - `black` y `ruff` en verde.
 
 ## Arquitectura del código
 
@@ -86,28 +87,29 @@ Reglas de validación actuales (mínimas):
 - `memoria.py`: `GestorMemoria` con Best-Fit, grado, espera y reintentos.
 - `planificador.py`: cola SRTF (lista para integrar con CPU).
 - `simulacion.py`: lectura CSV, ARRIBO, FIN de demo, control `--verbose`.
-- `io_metricas.py`: carga de CSV, logging y snapshot de memoria.
+- `io_metricas.py`: carga de CSV, logging, snapshot y resumen simple de métricas.
 - `main.py`: CLI y arranque del simulador.
 
-## Uso de Git
+## Flujo de trabajo con Git
 
-- Rama de trabajo: `feature/entrega1`.
-- Estándar:
+- Rama principal: `main`.
+- Rama de desarrollo sugerida: `feature/entrega1` → PR a `main`.
+- Comandos útiles:
 
-  ```powershell
-  black .; ruff check .; pytest -q
-  git add -A
-  git commit -m "mensaje"
-  git push
-  ```
+```powershell
+black .; ruff check .; pytest -q
+git add -A
+git commit -m "mensaje"
+git push
+```
 
 ## Limitaciones y trabajo pendiente
 
-- Planificación **SRTF** con desalojo integrada al ciclo de CPU.
-- Política explícita de empate `ARRIBO == FIN_CPU` (priorizar FIN_CPU) en el loop principal.
-- **Métricas finales**: `t_final`, turnaround y espera por proceso, promedios y throughput.
-- Test adicional de **preempción SRTF**.
-- Mensajes de validación estricta del CSV y README con ejemplos ampliados.
+- Integrar planificación **SRTF** con desalojo en el ciclo de CPU.
+- Política explícita **ARRIBO vs FIN_CPU** en el mismo tiempo (priorizar FIN_CPU).
+- Métricas completas por proceso: `t_final`, turnaround, espera; promedios y throughput.
+- Test de **preempción SRTF**.
+- Validación estricta de CSV y ejemplos extendidos en README.
 
 ## Ejemplo de salida (modo verbose)
 
@@ -117,8 +119,3 @@ Reglas de validación actuales (mínimas):
 Partición | Dirección | Tamaño | Proceso | Frag. interna
 ...
 ```
-
-## Contacto y contribución
-
-- Abrir PR en modo **Draft** desde `feature/entrega1` hacia `main`.
-- No mergear a `main` hasta completar métricas y SRTF.
