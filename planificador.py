@@ -3,11 +3,13 @@ import heapq
 from typing import Optional
 from procesos import Proceso
 
+
 class PlanificadorSRTF:
     """
     Cola de listos con prioridad por menor tiempo_restante.
     Solo la interfaz mínima para integrarse con el simulador.
     """
+
     def __init__(self):
         self._heap = []
         self._seq = 0  # desempate estable

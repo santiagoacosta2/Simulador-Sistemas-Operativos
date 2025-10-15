@@ -1,119 +1,155 @@
-from collections import deque
-from typing import List, Optional, Deque
-from procesos import Proceso, Particion
+# memoria.py
+from typing import List, Optional, Tuple
+from procesos import Particion, Proceso
+
 
 class GestorMemoria:
-    def __init__(self):
-        # Layout EXACTO de la consigna:
-        # P0: SO 100K (reservada, no asignable)
-        # P1: 250K, P2: 150K, P3: 50K
-        self.particiones: List[Particion] = [
-            Particion(0, base=0,   tamaño=100, reservada=True, libre=False),         # SO
-            Particion(1, base=100, tamaño=250),
-            Particion(2, base=350, tamaño=150),
-            Particion(3, base=500, tamaño=50),
-        ]
-        self.grado_max = 5
-        self.en_memoria = 0                      # procesos admitidos (no cuenta SO)
-        self.espera_memoria: Deque[Proceso] = deque()
+    def __init__(
+        self, particiones: Optional[List[Particion]] = None, grado_max: int = 5
+    ):
+        # Particiones de la consigna: SO=100K reservada, usuario: 250K, 150K, 50K
+        if particiones is None:
+            particiones = [
+                Particion(
+                    id_particion=0,
+                    base=0,
+                    tamaño=100,
+                    reservada=True,
+                    libre=False,
+                    proceso=None,
+                    frag_interna=0,
+                ),
+                Particion(
+                    id_particion=1,
+                    base=100,
+                    tamaño=250,
+                    reservada=False,
+                    libre=True,
+                    proceso=None,
+                    frag_interna=0,
+                ),
+                Particion(
+                    id_particion=2,
+                    base=350,
+                    tamaño=150,
+                    reservada=False,
+                    libre=True,
+                    proceso=None,
+                    frag_interna=0,
+                ),
+                Particion(
+                    id_particion=3,
+                    base=500,
+                    tamaño=50,
+                    reservada=False,
+                    libre=True,
+                    proceso=None,
+                    frag_interna=0,
+                ),
+            ]
+        self.particiones: List[Particion] = particiones
+        self.grado_max = grado_max
+        self.en_memoria = sum(
+            0 if (p.reservada or p.libre) else 1 for p in self.particiones
+        )
+        self.espera_memoria: List[Proceso] = []
 
-    def intentar_admitir(self, proceso: Proceso) -> tuple[bool, str]:
+    def _particiones_usuario_libres(self) -> List[Particion]:
+        return [p for p in self.particiones if not p.reservada and p.libre]
+
+    def _max_tam_usuario(self) -> int:
+        return max((p.tamaño for p in self.particiones if not p.reservada), default=0)
+
+    def _best_fit(self, req: int) -> Optional[Particion]:
+        candidatas = [p for p in self._particiones_usuario_libres() if p.tamaño >= req]
+        if not candidatas:
+            return None
+        return min(candidatas, key=lambda p: p.tamaño - req)
+
+    def asignar_proceso(self, p: Proceso) -> Optional[Particion]:
         if self.en_memoria >= self.grado_max:
-            proceso.estado = "Listo/Suspendido"
-            self.espera_memoria.append(proceso)
-            return False, "grado_max"
-
-        # Si jamás cabe en ninguna partición util (no reservada)
-        if proceso.memoria_requerida > max(p.tamaño for p in self.particiones if not p.reservada):
-            proceso.estado = "Listo/Suspendido"
-            self.espera_memoria.append(proceso)
-            return False, "no_cabe_en_ninguna"
-
-        mejor = self._buscar_best_fit(proceso.memoria_requerida)
-        if mejor is None:
-            proceso.estado = "Listo/Suspendido"
-            self.espera_memoria.append(proceso)
-            return False, "sin_particion_libre_adecuada"
-
-        self._ocupar(mejor, proceso)
-        proceso.tiempo_restante = proceso.tiempo_restante or proceso.duracion_cpu
-        proceso.estado = "Listo"
+            return None
+        part = self._best_fit(p.memoria_requerida)
+        if not part:
+            return None
+        # asignación
+        part.libre = False
+        part.proceso = p
+        part.frag_interna = part.tamaño - p.memoria_requerida
+        p.particion_asignada = part.id_particion
+        p.estado = "Listo"
+        if p.tiempo_restante is None:
+            p.tiempo_restante = p.duracion_cpu
         self.en_memoria += 1
-        return True, f"asignado_p{mejor.id_particion}"
-
-    def liberar_proceso(self, proceso: Proceso) -> Optional[Particion]:
-        if proceso.particion_asignada is None:
-            return None
-        part = self._particion_por_id(proceso.particion_asignada)
-        if part is None:
-            return None
-        self._liberar(part)
-        self.en_memoria -= 1
-        self._admitir_en_espera()
         return part
 
-    # ---------- utilidades internas ----------
-    def _buscar_best_fit(self, req: int) -> Optional[Particion]:
-        mejor = None
-        min_sobrante = None
-        for p in self.particiones:
-            if p.reservada:              # nunca asignar el SO
-                continue
-            if p.libre and p.tamaño >= req:
-                sobrante = p.tamaño - req
-                if (mejor is None) or (sobrante < min_sobrante):
-                    mejor = p
-                    min_sobrante = sobrante
-        return mejor
+    def intentar_admitir(self, p: Proceso) -> Tuple[bool, str]:
+        # reglas de rechazo
+        if p.memoria_requerida > self._max_tam_usuario():
+            self.espera_memoria.append(p)
+            p.estado = "Listo/Suspendido"
+            return False, "no_cabe_en_ninguna"
+        if self.en_memoria >= self.grado_max:
+            self.espera_memoria.append(p)
+            p.estado = "Listo/Suspendido"
+            return False, "grado_max"
 
-    def _ocupar(self, particion: Particion, proceso: Proceso) -> None:
-        particion.libre = False
-        particion.proceso = proceso
-        particion.frag_interna = particion.tamaño - proceso.memoria_requerida
-        proceso.particion_asignada = particion.id_particion
+        part = self.asignar_proceso(p)
+        if part:
+            return True, f"asignado_p{part.id_particion}"
+        # no hay partición libre adecuada
+        self.espera_memoria.append(p)
+        p.estado = "Listo/Suspendido"
+        return False, "sin_particion_libre_adecuada"
 
-    def _liberar(self, particion: Particion) -> None:
-        particion.libre = True
-        particion.frag_interna = 0
-        if particion.proceso:
-            particion.proceso.particion_asignada = None
-        particion.proceso = None
-
-    def _particion_por_id(self, idp: int) -> Optional[Particion]:
-        return next((p for p in self.particiones if p.id_particion == idp), None)
-
-    def _admitir_en_espera(self) -> None:
-        if not self.espera_memoria:
+    def liberar_proceso(self, p: Proceso) -> None:
+        if p.particion_asignada is None:
             return
-        # FIFO + repetir mientras haya espacio y cupo de grado
-        hubo_cambio = True
-        while hubo_cambio and self.en_memoria < self.grado_max:
-            hubo_cambio = False
-            for _ in range(len(self.espera_memoria)):
-                proc = self.espera_memoria[0]
-                mejor = self._buscar_best_fit(proc.memoria_requerida)
-                if mejor and self.en_memoria < self.grado_max:
-                    self.espera_memoria.popleft()
-                    self._ocupar(mejor, proc)
-                    proc.estado = "Listo"
-                    self.en_memoria += 1
-                    hubo_cambio = True
-                else:
-                    self.espera_memoria.rotate(-1)
+        for part in self.particiones:
+            if part.id_particion == p.particion_asignada:
+                part.libre = True
+                part.proceso = None
+                part.frag_interna = 0
+                break
+        p.particion_asignada = None
+        p.estado = "Terminado"
+        if self.en_memoria > 0:
+            self.en_memoria -= 1
+        # reintentos FIFO hasta que no quepa nadie más o se alcance el grado
+        i = 0
+        while i < len(self.espera_memoria) and self.en_memoria < self.grado_max:
+            q = self.espera_memoria[i]
+            part = self._best_fit(q.memoria_requerida)
+            if part:
+                # admitir y sacar de la espera
+                part.libre = False
+                part.proceso = q
+                part.frag_interna = part.tamaño - q.memoria_requerida
+                q.particion_asignada = part.id_particion
+                q.estado = "Listo"
+                if q.tiempo_restante is None:
+                    q.tiempo_restante = q.duracion_cpu
+                self.en_memoria += 1
+                self.espera_memoria.pop(i)
+                # no avanzamos i porque la lista se corrió
+            else:
+                i += 1
 
-    # ---------- para snapshots que pide la cátedra ----------
-    def snapshot_tabla_memoria(self) -> list[dict]:
-        """
-        Devuelve filas con: id_part, base, tamaño, id_proceso (o 'Libre'), fragmentacion_interna
-        para que el módulo de I/O/Métricas lo imprima en cada ARRIBO/FIN.
-        """
+    def snapshot_tabla_memoria(self):
         filas = []
         for p in self.particiones:
-            filas.append({
-                "Partición": p.id_particion,
-                "Dirección": p.base,
-                "Tamaño": p.tamaño,
-                "Proceso": p.proceso.id if p.proceso else ("SO" if p.reservada else "Libre"),
-                "Frag. interna": p.frag_interna if (p.proceso and not p.reservada) else 0
-            })
+            nombre_proc = (
+                "SO"
+                if p.reservada
+                else ("Libre" if p.libre else p.proceso.id if p.proceso else "Libre")
+            )
+            filas.append(
+                {
+                    "Partición": p.id_particion,
+                    "Dirección": p.base,
+                    "Tamaño": p.tamaño,
+                    "Proceso": nombre_proc,
+                    "Frag. interna": p.frag_interna,
+                }
+            )
         return filas

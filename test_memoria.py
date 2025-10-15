@@ -3,13 +3,29 @@
 from procesos import Proceso
 from memoria import GestorMemoria
 
+
 def imprimir_tabla(filas, titulo=""):
     if titulo:
         print(f"\n=== {titulo} ===")
-    print(f"{'Partición':>9} | {'Dirección':>9} | {'Tamaño':>6} | {'Proceso':>10} | {'Frag. interna':>14}")
-    print("-"*9 + "-+-" + "-"*9 + "-+-" + "-"*6 + "-+-" + "-"*10 + "-+-" + "-"*14)
+    print(
+        f"{'Partición':>9} | {'Dirección':>9} | {'Tamaño':>6} | {'Proceso':>10} | {'Frag. interna':>14}"
+    )
+    print(
+        "-" * 9
+        + "-+-"
+        + "-" * 9
+        + "-+-"
+        + "-" * 6
+        + "-+-"
+        + "-" * 10
+        + "-+-"
+        + "-" * 14
+    )
     for f in filas:
-        print(f"{f['Partición']:>9} | {f['Dirección']:>9} | {f['Tamaño']:>6} | {f['Proceso']:>10} | {f['Frag. interna']:>14}")
+        print(
+            f"{f['Partición']:>9} | {f['Dirección']:>9} | {f['Tamaño']:>6} | {f['Proceso']:>10} | {f['Frag. interna']:>14}"
+        )
+
 
 def main():
     # Inicializa particiones exactas de la consigna dentro del GestorMemoria
@@ -43,7 +59,12 @@ def main():
     # Elegimos liberar P2 (si fue admitido). Si P2 no entró, liberamos el que haya caído en 250 o 150.
     candidato = None
     for part in gm.particiones:
-        if not part.reservada and not part.libre and part.proceso and part.proceso.id == "P2":
+        if (
+            not part.reservada
+            and not part.libre
+            and part.proceso
+            and part.proceso.id == "P2"
+        ):
             candidato = part.proceso
             break
     if not candidato:
@@ -55,7 +76,10 @@ def main():
 
     if candidato:
         gm.liberar_proceso(candidato)
-        imprimir_tabla(gm.snapshot_tabla_memoria(), f"FIN_CPU {candidato.id} -> libera partición; reintentos FIFO+Best-Fit")
+        imprimir_tabla(
+            gm.snapshot_tabla_memoria(),
+            f"FIN_CPU {candidato.id} -> libera partición; reintentos FIFO+Best-Fit",
+        )
     else:
         print("\nNo se encontró proceso para liberar (revisar datos de prueba).")
 
@@ -65,6 +89,7 @@ def main():
         print("\nAún en espera por memoria:", en_espera)
     else:
         print("\nSin procesos en espera. OK.")
+
 
 if __name__ == "__main__":
     main()
