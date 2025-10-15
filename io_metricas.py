@@ -65,11 +65,14 @@ def calcular_metricas(lista_procesos: List[Proceso]) -> Dict:
         "tiempo_retorno_prom": None,
         "throughput": None,
     }
+
+
 # io_metricas.py
 from prettytable import PrettyTable
 
+
 def imprimir_resumen(procesos, t_fin):
-    tb = PrettyTable(["Proceso","Arribo","CPU","Fin","Turnaround","Espera"])
+    tb = PrettyTable(["Proceso", "Arribo", "CPU", "Fin", "Turnaround", "Espera"])
     for p in procesos:
         ta = p.t_final - p.t_arribo
         esp = ta - p.duracion_cpu
@@ -79,8 +82,9 @@ def imprimir_resumen(procesos, t_fin):
     avg_ta = sum(p.t_final - p.t_arribo for p in procesos) / n
     avg_esp = sum((p.t_final - p.t_arribo - p.duracion_cpu) for p in procesos) / n
     thr = (len(procesos) / t_fin) if t_fin else 0
-    print(f"Promedios -> Turnaround: {avg_ta:.2f}  Espera: {avg_esp:.2f}  Throughput: {thr:.3f}")
-    
+    print(
+        f"Promedios -> Turnaround: {avg_ta:.2f}  Espera: {avg_esp:.2f}  Throughput: {thr:.3f}"
+    )
 
 
 # prueba
