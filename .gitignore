@@ -1,4 +1,11 @@
-﻿.venv/
+# Python
 __pycache__/
 *.pyc
+.venv/
+
+# Herramientas
+.pytest_cache/
+.ruff_cache/
+
+# VSCode
 .vscode/
