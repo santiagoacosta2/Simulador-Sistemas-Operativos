@@ -1,16 +1,19 @@
 # main.py
 # -----------------------------------------------------------
 # Punto de entrada de la aplicación.
-# - Parseo de argumentos de línea de comandos.
-# - Construcción y ejecución del Simulador.
-# - Mensajes claros ante errores (CSV inválido, etc.).
 # -----------------------------------------------------------
+
+from __future__ import annotations
 
 import argparse
 import os
 import sys
+from typing import List
 
-from simulacion import Simulador
+from memoria import GestorMemoria
+from procesos import Proceso
+from simulacion import ejecutar_simulacion
+from io_metricas import cargar_procesos_desde_csv
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,7 +24,10 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog="simulador-so",
-        description="Simulador de SO — Entrega 1: memoria con particiones fijas y demo ARRIBO/FIN.",
+        description=(
+            "Simulador de SO — SRTF con desalojo + memoria con particiones "
+            "fijas y Best-Fit."
+        ),
     )
     parser.add_argument(
         "--csv",
@@ -41,24 +47,37 @@ def main() -> int:
     Orquesta:
       1) Lee args.
       2) Valida existencia del CSV.
-      3) Ejecuta la simulación.
-    Retorna código de salida (0 ok, 1 error).
+      3) Carga procesos.
+      4) Construye GestorMemoria.
+      5) Ejecuta la simulación.
     """
     args = parse_args()
 
-    # Validación mínima de la ruta CSV
     if not os.path.isfile(args.csv):
         sys.stderr.write(f"Error: no se encontró el archivo CSV: {args.csv}\n")
         return 1
 
     try:
-        Simulador(csv_path=args.csv, verbose=args.verbose).ejecutar()
+        procesos: List[Proceso] = cargar_procesos_desde_csv(args.csv)
+        if not procesos:
+            sys.stderr.write(
+                f"Error de datos: el CSV '{args.csv}' no contiene procesos.\n"
+            )
+            return 1
+
+        gestor_memoria = GestorMemoria()
+
+        ejecutar_simulacion(
+            procesos=procesos,
+            gestor_memoria=gestor_memoria,
+            verbose=bool(args.verbose),
+        )
         return 0
+
     except (KeyError, ValueError) as e:
-        # Errores de formato/validación de CSV u otros valores inválidos
         sys.stderr.write(f"Error de datos: {e}\n")
         return 1
-    except Exception as e:  # noqa: BLE001  (mostramos cualquier otro error inesperado)
+    except Exception as e:  # noqa: BLE001
         sys.stderr.write(f"Error inesperado: {e}\n")
         return 1
 

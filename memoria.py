@@ -1,242 +1,256 @@
-# memoria.py
-# -----------------------------------------------------------
-# Gestor de memoria con particiones fijas.
-# - SO reservado: 100K (id_particion=0, base=0), siempre ocupado.
-# - Usuario: 250K (id=1, base=100), 150K (id=2, base=350), 50K (id=3, base=500)
-# - Política de asignación: Best-Fit.
-# - Grado de multiprogramación configurable (default=5).
-# - Cola FIFO de espera por memoria y reintentos al liberar.
-#
-# Interfaz pública usada por el simulador/tests:
-#   - intentar_admitir(p) -> (ok: bool, motivo: str)
-#   - liberar_proceso(p) -> None
-#   - snapshot_tabla_memoria() -> List[dict]  (para imprimir tabla)
-#   - asignar_proceso(p) -> Particion|None    (uso interno)
-# -----------------------------------------------------------
+"""
+Gestor de memoria con particiones fijas + Best-Fit + grado de multiprogramación.
+"""
 
-from typing import List, Optional, Tuple
+from __future__ import annotations
 
-from procesos import Particion, Proceso
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Any
+
+from prettytable import PrettyTable
+
+
+@dataclass
+class Particion:
+    """
+    Representa una partición de memoria principal.
+    """
+
+    id_particion: str
+    base: int
+    tamanio: int
+    es_so: bool = False
+    proceso: Optional[Any] = None
+
+    @property
+    def esta_libre(self) -> bool:
+        return self.proceso is None
+
+    @property
+    def memoria_ocupada(self) -> int:
+        if self.proceso is None:
+            return 0
+        return int(self.proceso.memoria)
+
+    @property
+    def fragmentacion_interna(self) -> int:
+        if self.proceso is None:
+            return 0
+        return self.tamanio - self.memoria_ocupada
 
 
 class GestorMemoria:
-    def __init__(
-        self, particiones: Optional[List[Particion]] = None, grado_max: int = 5
-    ):
-        """
-        Si no se provee una lista de particiones, se crean las de la consigna.
-        'grado_max' limita la cantidad de procesos de usuario simultáneamente en memoria.
-        """
-        if particiones is None:
-            particiones = [
-                # SO reservado: aparece como ocupado, sin proceso asociado.
-                Particion(
-                    id_particion=0,
-                    base=0,
-                    tamaño=100,
-                    reservada=True,
-                    libre=False,
-                    proceso=None,
-                    frag_interna=0,
-                ),
-                # Usuario
-                Particion(
-                    id_particion=1,
-                    base=100,
-                    tamaño=250,
-                    reservada=False,
-                    libre=True,
-                    proceso=None,
-                    frag_interna=0,
-                ),
-                Particion(
-                    id_particion=2,
-                    base=350,
-                    tamaño=150,
-                    reservada=False,
-                    libre=True,
-                    proceso=None,
-                    frag_interna=0,
-                ),
-                Particion(
-                    id_particion=3,
-                    base=500,
-                    tamaño=50,
-                    reservada=False,
-                    libre=True,
-                    proceso=None,
-                    frag_interna=0,
-                ),
-            ]
+    """
+    Encapsula TODA la lógica de gestión de memoria con particiones fijas.
 
-        self.particiones: List[Particion] = particiones
-        self.grado_max: int = grado_max
+    Configuración:
+        - 100K SO.
+        - 250K, 150K, 50K usuario.
+        - Grado de multiprogramación máximo = 5.
+    """
 
-        # Conteo de procesos de usuario actualmente en memoria
-        self.en_memoria: int = sum(
-            0 if (p.reservada or p.libre) else 1 for p in self.particiones
+    def __init__(self, grado_multiprogramacion_max: int = 5) -> None:
+        self._particiones: List[Particion] = [
+            Particion(id_particion="SO", base=0, tamanio=100, es_so=True),
+            Particion(id_particion="U1", base=100, tamanio=250),
+            Particion(id_particion="U2", base=350, tamanio=150),
+            Particion(id_particion="U3", base=500, tamanio=50),
+        ]
+
+        self._grado_max = grado_multiprogramacion_max
+        self._en_memoria_usuario = 0
+        self._cola_espera: List[Any] = []
+
+    @property
+    def particiones(self) -> List[Particion]:
+        return self._particiones
+
+    @property
+    def cola_espera(self) -> List[Any]:
+        return list(self._cola_espera)
+
+    @property
+    def grado_multiprogramacion_actual(self) -> int:
+        return self._en_memoria_usuario
+
+    @property
+    def grado_multiprogramacion_max(self) -> int:
+        return self._grado_max
+
+    # ------------------------------------------------------------------
+    # API para Simulador
+    # ------------------------------------------------------------------
+
+    def intentar_admitir_proceso(self, proceso: Any, tiempo: int) -> Tuple[bool, str]:
+        """
+        Intenta admitir un proceso usando Best-Fit.
+
+        Retorna (bool, motivo):
+            True, "ASIGNADO"
+            False, "NO_CABE_EN_NINGUNA"
+            False, "GRADO_MAXIMO"
+            False, "SIN_PARTICION_LIBRE_ADECUADA"
+        """
+        tamanio_proceso = int(proceso.memoria)
+
+        if not self._puede_caber_en_alguna_particion(tamanio_proceso):
+            return False, "NO_CABE_EN_NINGUNA"
+
+        if self._en_memoria_usuario >= self._grado_max:
+            self._cola_espera.append(proceso)
+            return False, "GRADO_MAXIMO"
+
+        particion = self._buscar_best_fit_libre(tamanio_proceso)
+        if particion is None:
+            self._cola_espera.append(proceso)
+            return False, "SIN_PARTICION_LIBRE_ADECUADA"
+
+        self._asignar_particion(particion, proceso)
+        print(
+            f"[t={tiempo}] Proceso {proceso.id} asignado a partición {particion.id_particion} "
+            f"(tamaño={particion.tamanio}K, pedido={tamanio_proceso}K)"
         )
 
-        # Cola FIFO de procesos esperando por memoria
-        self.espera_memoria: List[Proceso] = []
+        return True, "ASIGNADO"
 
-    # -------------------------
-    # Helpers internos (privados)
-    # -------------------------
-
-    def _particiones_usuario_libres(self) -> List[Particion]:
-        """Devuelve particiones de usuario libres."""
-        return [p for p in self.particiones if not p.reservada and p.libre]
-
-    def _max_tam_usuario(self) -> int:
-        """Máximo tamaño disponible entre particiones de usuario (independiente del estado libre/ocupado)."""
-        return max((p.tamaño for p in self.particiones if not p.reservada), default=0)
-
-    def _best_fit(self, req: int) -> Optional[Particion]:
+    def liberar_y_reintentar(
+        self,
+        proceso_terminado: Any,
+        tiempo: int,
+    ) -> List[Any]:
         """
-        Selecciona la partición libre más ajustada (mínima fragmentación interna)
-        que pueda albergar 'req'. Si no hay, devuelve None.
+        Libera memoria del proceso terminado y reintenta cola de espera (FIFO).
         """
-        candidatas = [p for p in self._particiones_usuario_libres() if p.tamaño >= req]
-        if not candidatas:
-            return None
-        # Minimiza (tamaño - requerido)
-        return min(candidatas, key=lambda p: p.tamaño - req)
+        self._liberar_particion_de(proceso_terminado, tiempo)
 
-    # -------------------------
-    # API principal
-    # -------------------------
+        admitidos: List[Any] = []
+        cola_original = list(self._cola_espera)
+        self._cola_espera.clear()
 
-    def asignar_proceso(self, p: Proceso) -> Optional[Particion]:
-        """
-        Intenta asignar 'p' a una partición libre por Best-Fit.
-        Respeta el 'grado_max'. Devuelve la partición usada o None.
-        """
-        if self.en_memoria >= self.grado_max:
-            return None
+        for proceso in cola_original:
+            if self._en_memoria_usuario >= self._grado_max:
+                self._cola_espera.append(proceso)
+                continue
 
-        part = self._best_fit(p.memoria_requerida)
-        if not part:
-            return None
+            tamanio_proceso = int(proceso.memoria)
 
-        # Asignación efectiva
-        part.libre = False
-        part.proceso = p
-        part.frag_interna = part.tamaño - p.memoria_requerida
+            if not self._puede_caber_en_alguna_particion(tamanio_proceso):
+                print(
+                    f"[t={tiempo}] Proceso {proceso.id} descartado de espera: "
+                    f"no cabe en ninguna partición."
+                )
+                continue
 
-        p.particion_asignada = part.id_particion
-        p.estado = "Listo"
-        if p.tiempo_restante is None:
-            p.tiempo_restante = p.duracion_cpu
+            particion = self._buscar_best_fit_libre(tamanio_proceso)
+            if particion is None:
+                self._cola_espera.append(proceso)
+                continue
 
-        self.en_memoria += 1
-        return part
-
-    def intentar_admitir(self, p: Proceso) -> Tuple[bool, str]:
-        """
-        Intenta admitir 'p' en memoria. Retorna (ok, motivo):
-          - (False, "no_cabe_en_ninguna") si requiere más que la partición de usuario más grande.
-          - (False, "grado_max") si ya se alcanzó el grado de multiprogramación.
-          - (False, "sin_particion_libre_adecuada") si no hay libre que ajuste (queda en espera).
-          - (True,  "asignado_pX") si se asigna (X = id de partición).
-        En caso de False, el proceso pasa a estado 'Listo/Suspendido' y entra a espera FIFO.
-        """
-        # Rechazo inmediato: pide más que cualquier partición de usuario
-        if p.memoria_requerida > self._max_tam_usuario():
-            self.espera_memoria.append(p)
-            p.estado = "Listo/Suspendido"
-            return False, "no_cabe_en_ninguna"
-
-        # Rechazo temporal: límite de grado
-        if self.en_memoria >= self.grado_max:
-            self.espera_memoria.append(p)
-            p.estado = "Listo/Suspendido"
-            return False, "grado_max"
-
-        # Intento real de asignación
-        part = self.asignar_proceso(p)
-        if part:
-            return True, f"asignado_p{part.id_particion}"
-
-        # No hay partición libre adecuada por tamaño en este momento
-        self.espera_memoria.append(p)
-        p.estado = "Listo/Suspendido"
-        return False, "sin_particion_libre_adecuada"
-
-    def liberar_proceso(self, p: Proceso) -> None:
-        """
-        Libera la partición ocupada por 'p' y reintenta admitir procesos en espera (FIFO),
-        respetando Best-Fit y el grado de multiprogramación.
-        """
-        if p.particion_asignada is None:
-            return
-
-        # Liberación de la partición
-        for part in self.particiones:
-            if part.id_particion == p.particion_asignada:
-                part.libre = True
-                part.proceso = None
-                part.frag_interna = 0
-                break
-
-        p.particion_asignada = None
-        p.estado = "Terminado"
-
-        if self.en_memoria > 0:
-            self.en_memoria -= 1
-
-        # Reintentos FIFO:
-        # Se itera con índice 'i' para poder remover del medio sin perder el recorrido.
-        i = 0
-        while i < len(self.espera_memoria) and self.en_memoria < self.grado_max:
-            q = self.espera_memoria[i]
-            part = self._best_fit(q.memoria_requerida)
-
-            if part:
-                # Admitir q y sacarlo de espera (no avanzar i porque la lista se compacta)
-                part.libre = False
-                part.proceso = q
-                part.frag_interna = part.tamaño - q.memoria_requerida
-
-                q.particion_asignada = part.id_particion
-                q.estado = "Listo"
-                if q.tiempo_restante is None:
-                    q.tiempo_restante = q.duracion_cpu
-
-                self.en_memoria += 1
-                self.espera_memoria.pop(i)
-            else:
-                # No hay partición libre adecuada para q; intentar con el siguiente en la cola
-                i += 1
-
-    # -------------------------
-    # Snapshot para impresión
-    # -------------------------
-
-    def snapshot_tabla_memoria(self):
-        """
-        Devuelve una lista de dicts con el estado de cada partición,
-        con las claves esperadas por la rutina de impresión:
-          - Partición, Dirección, Tamaño, Proceso, Frag. interna
-        """
-        filas = []
-        for p in self.particiones:
-            # Nombre del proceso en la tabla:
-            if p.reservada:
-                nombre_proc = "SO"
-            else:
-                if p.libre:
-                    nombre_proc = "Libre"
-                else:
-                    nombre_proc = p.proceso.id if p.proceso else "Libre"
-
-            filas.append(
-                {
-                    "Partición": p.id_particion,
-                    "Dirección": p.base,
-                    "Tamaño": p.tamaño,
-                    "Proceso": nombre_proc,
-                    "Frag. interna": p.frag_interna,
-                }
+            self._asignar_particion(particion, proceso)
+            admitidos.append(proceso)
+            print(
+                f"[t={tiempo}] Proceso {proceso.id} admitido desde cola de espera "
+                f"a partición {particion.id_particion} (tamaño={particion.tamanio}K)"
             )
-        return filas
+
+        return admitidos
+
+    # ------------------------------------------------------------------
+    # Lógica interna
+    # ------------------------------------------------------------------
+
+    def _particiones_usuario(self) -> List[Particion]:
+        return [p for p in self._particiones if not p.es_so]
+
+    def _puede_caber_en_alguna_particion(self, tamanio_proceso: int) -> bool:
+        max_tamanio = max(p.tamanio for p in self._particiones_usuario())
+        return tamanio_proceso <= max_tamanio
+
+    def _buscar_best_fit_libre(self, tamanio_proceso: int) -> Optional[Particion]:
+        mejor: Optional[Particion] = None
+        mejor_sobrante: Optional[int] = None
+
+        for particion in self._particiones_usuario():
+            if not particion.esta_libre:
+                continue
+            if particion.tamanio < tamanio_proceso:
+                continue
+
+            sobrante = particion.tamanio - tamanio_proceso
+            if mejor is None or sobrante < mejor_sobrante:  # type: ignore[operator]
+                mejor = particion
+                mejor_sobrante = sobrante
+
+        return mejor
+
+    def _asignar_particion(self, particion: Particion, proceso: Any) -> None:
+        if not particion.esta_libre:
+            raise RuntimeError(
+                f"Intento de asignar a partición ocupada: {particion.id_particion}"
+            )
+
+        particion.proceso = proceso
+        if not particion.es_so:
+            self._en_memoria_usuario += 1
+
+    def _liberar_particion_de(self, proceso: Any, tiempo: int) -> None:
+        for particion in self._particiones_usuario():
+            if particion.proceso is proceso:
+                print(
+                    f"[t={tiempo}] Proceso {proceso.id} libera partición {particion.id_particion} "
+                    f"(tamaño={particion.tamanio}K)"
+                )
+                particion.proceso = None
+                self._en_memoria_usuario -= 1
+                if self._en_memoria_usuario < 0:
+                    self._en_memoria_usuario = 0
+                return
+
+        print(
+            f"[t={tiempo}] Aviso: se intentó liberar memoria de {getattr(proceso, 'id', '?')} "
+            f"pero no se encontró partición asignada."
+        )
+
+    # ------------------------------------------------------------------
+    # Visualización
+    # ------------------------------------------------------------------
+
+    def imprimir_estado(self) -> None:
+        tabla = PrettyTable()
+        tabla.field_names = [
+            "Partición",
+            "Base",
+            "Tamaño(K)",
+            "Proceso",
+            "Ocupada(K)",
+            "Frag. interna(K)",
+        ]
+
+        for particion in self._particiones:
+            if particion.proceso is None:
+                id_proceso = "-"
+                ocupada = 0
+                frag = 0
+            else:
+                id_proceso = getattr(particion.proceso, "id", "?")
+                ocupada = particion.memoria_ocupada
+                frag = particion.fragmentacion_interna
+
+            tabla.add_row(
+                [
+                    particion.id_particion,
+                    particion.base,
+                    particion.tamanio,
+                    id_proceso,
+                    ocupada,
+                    frag,
+                ]
+            )
+
+        print("=== Estado de la memoria ===")
+        print(tabla)
+        print(
+            f"Grado multiprogramación: {self._en_memoria_usuario}"
+            f"/{self._grado_max}, en espera: {len(self._cola_espera)}"
+        )
+        print("============================\n")

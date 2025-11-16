@@ -1,77 +1,68 @@
-# procesos.py
-# -----------------------------------------------------------
-# Modelos de dominio: Proceso y Particion.
-# Se usan dataclasses para simplicidad y legibilidad.
-# Incluye validaciones mínimas y valores derivados.
-# -----------------------------------------------------------
+"""
+Modelo de proceso para el simulador de Sistemas Operativos.
+
+Responsabilidades:
+    - Representar los datos básicos de un proceso:
+        * id lógico
+        * instante de arribo al sistema
+        * duración total de CPU (ráfaga)
+        * memoria requerida
+    - Mantener el tiempo restante de CPU durante la simulación.
+"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
 class Proceso:
     """
-    Representa un proceso de usuario.
+    Representa un proceso del sistema.
 
-    Atributos obligatorios:
-      - id: identificador único lógico (p.ej., "P1").
-      - t_arribo: instante de arribo al sistema (entero >= 0).
-      - duracion_cpu: ráfaga total de CPU requerida (entero > 0).
-      - memoria_requerida: tamaño en K requerido para entrar a memoria (entero > 0).
-
-    Atributos derivados/estado:
-      - tiempo_restante: se inicializa con duracion_cpu si no se provee.
-      - particion_asignada: id lógico de partición cuando está admitido.
-      - estado: ciclo de vida simplificado.
-      - t_final: se completa al terminar para métricas (turnaround/espera).
+    Campos:
+        id:
+            Identificador del proceso (columna 'ID' del CSV).
+        arribo:
+            Instante en el que el proceso arriba al sistema
+            (columna 'Arribo' del CSV).
+        rafaga_cpu:
+            Duración total de CPU que necesita el proceso
+            (columna 'RafagaCPU' del CSV).
+        memoria:
+            Memoria requerida en KB
+            (columna 'Memoria' del CSV).
+        tiempo_restante:
+            Tiempo de CPU que le falta al proceso.
+            Se inicializa en rafaga_cpu y se va descontando.
     """
 
     id: str
-    t_arribo: int
-    duracion_cpu: int
-    memoria_requerida: int
-
-    tiempo_restante: Optional[int] = None
-    particion_asignada: Optional[int] = None
-    estado: str = "Nuevo"  # Nuevo | Listo | Listo/Suspendido | Ejecutando | Terminado
-    t_final: Optional[int] = None  # lo setea el simulador al finalizar
+    arribo: int
+    rafaga_cpu: int
+    memoria: int
+    tiempo_restante: int = field(init=False)
 
     def __post_init__(self) -> None:
-        # Normaliza y valida mínimos
-        if not isinstance(self.id, str) or not self.id.strip():
-            raise ValueError("Proceso.id debe ser un string no vacío.")
-        if self.t_arribo < 0:
-            raise ValueError("Proceso.t_arribo debe ser >= 0.")
-        if self.duracion_cpu <= 0:
-            raise ValueError("Proceso.duracion_cpu debe ser > 0.")
-        if self.memoria_requerida <= 0:
-            raise ValueError("Proceso.memoria_requerida debe ser > 0.")
+        """
+        Inicializa tiempo_restante con el valor de rafaga_cpu.
+        """
+        self.tiempo_restante = int(self.rafaga_cpu)
 
-        # Si no se especifica, el tiempo restante arranca igual a la ráfaga
-        if self.tiempo_restante is None:
-            self.tiempo_restante = self.duracion_cpu
-
-
-@dataclass
-class Particion:
-    """
-    Partición de memoria fija.
-
-    Notas:
-      - 'reservada=True' solo para la partición del SO.
-      - 'libre' indica disponibilidad.
-      - 'proceso' referencia al Proceso asignado o None.
-      - 'frag_interna' se calcula al asignar con Best-Fit.
-    """
-
-    id_particion: int
-    base: int  # dirección base (p.ej., 0, 100, 350, 500)
-    tamaño: int  # tamaño en K de la partición (se mantiene el nombre utilizado)
-    reservada: bool = False
-    libre: bool = True
-    proceso: Optional[Proceso] = None
-    frag_interna: int = 0
-
-    # Sin __post_init__: las validaciones y la gestión de fragmentación
-    # se realizan desde el GestorMemoria al momento de asignar/liberar.
+    @classmethod
+    def desde_csv(
+        cls,
+        id_str: str,
+        arribo_str: str,
+        rafaga_str: str,
+        memoria_str: str,
+    ) -> "Proceso":
+        """
+        Helper para crear un Proceso directamente desde strings del CSV.
+        """
+        return cls(
+            id=id_str.strip(),
+            arribo=int(arribo_str),
+            rafaga_cpu=int(rafaga_str),
+            memoria=int(memoria_str),
+        )
